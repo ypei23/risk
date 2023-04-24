@@ -1,7 +1,7 @@
 # Homework: Graph Algorithms for the Risk Board Game
 
-[![](https://github.com/mikeizbicki/risk/workflows/tests/badge.svg)](https://github.com/mikeizbicki/risk/actions?query=workflow%3Atests)
 
+[![](https://github.com/ypei23/risk/workflows/tests/badge.svg)](https://github.com/ypei23/risk/actions?query=workflow%3Atests)
 You will implement several graph algorithms to develop a tool for the game of Risk.
 
 **Learning Objectives:**
