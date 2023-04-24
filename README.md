@@ -4,7 +4,7 @@
 [![](https://github.com/ypei23/risk/workflows/tests/badge.svg)](https://github.com/ypei23/risk/actions?query=workflow%3Atests)
 You will implement several graph algorithms to develop a tool for the game of Risk.
 
-**Learning Objectives:**
+**learning Objectives:**
 
 1. implement graph traversal algorithms
 1. understand how graph traversals relate to real-world AI problems
