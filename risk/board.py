@@ -3,6 +3,7 @@ import random
 from queue import PriorityQueue
 from collections import namedtuple
 from collections import deque
+import copy
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -37,10 +38,8 @@ class Board(object):
     def create(cls, n_players):
         """
         Create a Board and randomly allocate the territories. Place one army on each territory.
-        
         Args:
             n_players (int): Number of players.
-                
         Returns:
             Board: A board with territories randomly allocated to the players.
         """
@@ -50,13 +49,12 @@ class Board(object):
 
     # ====================== #
     # == Neighbor Methods == #
-    # ====================== #   
+    # ====================== #
 
     def neighbors(self, territory_id):
         """
         Create a generator of all territories neighboring a given territory.
-            
-        Args:
+            Args:
             territory_id (int): ID of the territory to find neighbors of.
 
         Returns:
@@ -69,10 +67,8 @@ class Board(object):
         """
         Create a generator of all territories neighboring a given territory, of which
         the owner is not the same as the owner of the original territory.
-            
         Args:
             territory_id (int): ID of the territory.
-                
         Returns:
             generator: Generator of Territories.
         """
@@ -95,7 +91,6 @@ class Board(object):
         neighbor_ids = risk.definitions.territory_neighbors[territory_id]
         return (t for t in self.data if (t.player_id == player_id and t.territory_id in neighbor_ids))
 
-    
     # ================== #
     # == Path Methods == #
     # ================== #
@@ -113,21 +108,17 @@ class Board(object):
         Returns:
             bool: True if the input path is valid
         '''
-        # check if any territory is repeated multiple times in the path
-        if len(set(path)) != len(path):
-            return False
-        # check if each territory except the last one has a neighbor in the next territory
-        for i in range(len(path) - 1):
-            current_territory = path[i]
-            next_territory = path[i + 1]
-            if next_territory not in risk.definitions.territory_neighbors[current_territory]:
-                return False
-        # if both checks pass, return True
-        return True
-    
+        ret = True
+        if len(path) <= 1:
+            return ret
+        ret &= path[0] not in path[1:]
+        ret &= path[1] in risk.definitions.territory_neighbors[path[0]]
+        ret &= self.is_valid_path(path[1:])
+        return ret
+
     def is_valid_attack_path(self, path):
         '''
-        The rules of Risk state that when attacking, 
+        The rules of Risk state that when attacking,
         a player's armies cannot move through territories they already occupy;
         they must move through enemy territories.
         All valid attacks, therefore, will follow a path of starting on one player's territory and moving trough enemy territories.
@@ -142,15 +133,11 @@ class Board(object):
         Returns:
             bool: True if the path is an attack path
         '''
-        if len(path) < 2:
-            return False
-        if not self.is_valid_path(path):
-            return False
-        first_territory_owner = self.owner(path[0])
+        ret = self.is_valid_path(path)
+        ret &= len(path) > 1
         for tid in path[1:]:
-            if self.owner(tid) == first_territory_owner:
-                return False
-        return True
+            ret &= self.owner(tid) != self.owner(path[0])
+        return ret
 
     def cost_of_attack_path(self, path):
         '''
@@ -163,12 +150,10 @@ class Board(object):
         Returns:
             bool: the number of enemy armies in the path
         '''
-        if not self.is_valid_attack_path(path):
-            raise ValueError("invalid attack path")
-        enemy_armies = 0
+        ret = 0
         for tid in path[1:]:
-            enemy_armies += self.armies(tid)
-        return enemy_armies
+            ret += self.data[tid].armies
+        return ret
 
     def shortest_path(self, source, target):
         '''
@@ -206,8 +191,6 @@ class Board(object):
                 queue.append(copy_stack)
                 visited.add(tid)
         return None
-         
-
 
     def can_fortify(self, source, target):
         '''
@@ -241,7 +224,7 @@ class Board(object):
                     copy_stack.append(tid)
                     queue.append(copy_stack)
                     visited.add(tid)
-        return None
+        return False
 
     def cheapest_attack_path(self, source, target):
         '''
@@ -256,32 +239,37 @@ class Board(object):
         Returns:
             [int]: a list of territory_ids representing the valid attack path; if no path exists, then it returns None instead
         '''
-        dist = {source: [source]}
+        pid = self.owner(source)
+        if pid == self.owner(target):
+            return None
+        dictionary = {source: [source]}
         pq = PriorityQueue()
+        pq.put((0, source))
         visited = set()
         visited.add(source)
-        if source == target:
+        while not pq.empty():
+            current_priority, current_territory = pq.get()
+            if current_territory == target:
+                return dictionary[current_territory]
+            n = risk.definitions.territory_neighbors[current_territory]
+            for territory in n:
+                if territory not in visited and self.owner(territory) != pid:
+                    new = dictionary[current_territory].copy()
+                    new.append(territory)
+                    priority = current_priority + self.data[territory].armies
+                    p = priority
+                    t = territory
+                    if territory not in [x[1] for x in pq.queue]:
+                        dictionary[territory] = new
+                        pq.put((priority, territory))
+                    elif p < min([x[0] for x in pq.queue if x[1] == t]):
+                        dictionary[territory] = new
+                        for i, (p, t) in enumerate(pq.queue):
+                            if t == territory:
+                                pq.queue[i] = (priority, territory)
+                                break
+                visited.add(current_territory)
             return None
-        while pq:
-            curr_priority, curr_tid = pq.get()
-            if curr_tid == target:
-                return dist[curr_tid]
-            valid_next = [tid for tid in risk.definitions.territory_neighbors[curr] if (self.owner(tid) != self.owner(source) and tid not in visited)]
-            for tid in valid_next:
-                copy_dist = dist[curr_tid][:]
-                copy_dist.append(tid)
-                cost = curr_priority + self.armies(tid)
-                if tid not in [x[1] for x in pq.queue]:
-                    dist[tid] = new
-                    pq.put((cost, tid))
-                elif cost < min([x[0] for x in pq.queue if x[1] == tid]):
-                    dist[tid] = new
-                    for i, (p, t) in enumerate(pq.queue):
-                        if tid == territory:
-                            pq.queue[i] = (cost, tid)
-                            break
-            visited.add(curr_tid)
-        return None
 
     def can_attack(self, source, target):
         '''
@@ -292,8 +280,28 @@ class Board(object):
         Returns:
             bool: True if a valid attack path exists between source and target; else False
         '''
-        attack_path = self.cheapest_attack_path(source, target)
-        return attack_path is not None
+        pid = self.owner(source)
+        if pid == self.owner(target):
+            return False
+        dictionary = {}
+        dictionary[source] = [source]
+        queue = deque()
+        queue.append(source)
+        visited = set()
+        visited.add(source)
+        while queue:
+            current_territory = queue.popleft()
+            if current_territory == target:
+                return True
+            n = risk.definitions.territory_neighbors[current_territory]
+            for territory in n:
+                if territory not in visited and self.owner(territory) != pid:
+                    visited.add(territory)
+                    copy_of_path = copy.copy(dictionary[current_territory])
+                    copy_of_path.append(territory)
+                    dictionary[territory] = copy_of_path
+                    queue.append(territory)
+        return False
 
     # ======================= #
     # == Continent Methods == #
@@ -302,7 +310,6 @@ class Board(object):
     def continent(self, continent_id):
         """
         Create a generator of all territories that belong to a given continent.
-            
         Args:
             continent_id (int): ID of the continent.
 
@@ -314,10 +321,8 @@ class Board(object):
     def n_continents(self, player_id):
         """
         Calculate the total number of continents owned by a player.
-        
         Args:
-            player_id (int): ID of the player.
-                
+        player_id (int): ID of the player.
         Returns:
             int: Number of continents owned by the player.
         """
@@ -326,11 +331,9 @@ class Board(object):
     def owns_continent(self, player_id, continent_id):
         """
         Check if a player owns a continent.
-        
         Args:
             player_id (int): ID of the player.
             continent_id (int): ID of the continent.
-            
         Returns:
             bool: True if the player owns all of the continent's territories.
         """
@@ -340,11 +343,9 @@ class Board(object):
         """
         Find the owner of all territories in a continent. If the continent
         is owned by various players, return None.
-            
         Args:
             continent_id (int): ID of the continent.
-                
-        Returns:
+            Returns:
             int/None: Player_id if a player owns all territories, else None.
         """
         pids = set([t.player_id for t in self.continent(continent_id)])
@@ -355,7 +356,6 @@ class Board(object):
     def continent_fraction(self, continent_id, player_id):
         """
         Compute the fraction of a continent a player owns.
-        
         Args:
             continent_id (int): ID of the continent.
             player_id (int): ID of the player.
@@ -370,7 +370,6 @@ class Board(object):
     def num_foreign_continent_territories(self, continent_id, player_id):
         """
         Compute the number of territories owned by other players on a given continent.
-        
         Args:
             continent_id (int): ID of the continent.
             player_id (int): ID of the player.
@@ -382,12 +381,11 @@ class Board(object):
 
     # ==================== #
     # == Action Methods == #
-    # ==================== #    
+    # ==================== #
 
     def reinforcements(self, player_id):
         """
         Calculate the number of reinforcements a player is entitled to.
-            
         Args:
             player_id (int): ID of the player.
 
@@ -417,7 +415,6 @@ class Board(object):
     def possible_fortifications(self, player_id):
         """
         Assemble a list of all possible fortifications for the players.
-        
         Args:
             player_id (int): ID of the attacking player.
 
@@ -483,20 +480,19 @@ class Board(object):
 
     # ====================== #
     # == Plotting Methods == #
-    # ====================== #    
+    # ====================== #
 
     def plot_board(self, path=None, plot_graph=False, filename=None):
-        """ 
-        Plot the board. 
-        
+        """
+        Plot the board
         Args:
             path ([int]): a path of territory_ids to plot
             plot_graph (bool): if true, plots the graph structure overlayed on the board
             filename (str): if given, the plot will be saved to the given filename instead of displayed
         """
         im = plt.imread(os.getcwd() + '/img/risk.png')
-        dpi=96
-        img_width=800
+        dpi = 96
+        img_width = 800
         fig, ax = plt.subplots(figsize=(img_width/dpi, 300/dpi), dpi=dpi)
         _ = plt.imshow(im)
         plt.axis('off')
@@ -507,13 +503,13 @@ class Board(object):
             if not self.is_valid_path(xs):
                 print('WARNING: not a valid path')
             coor = risk.definitions.territory_locations[xs[0]]
-            verts=[(coor[0]*1.2, coor[1]*1.22 + 25)]
-            codes = [ Path.MOVETO ]
-            for i,x in enumerate(xs[1:]):
-                if (xs[i]==19 and xs[i+1]==1) or (xs[i]==1 and xs[i+1]==19):
+            verts = [(coor[0] * 1.2, coor[1] * 1.22 + 25)]
+            codes = [Path.MOVETO]
+            for i, x in enumerate(xs[1:]):
+                if (xs[i] == 19 and xs[i + 1] == 1) or (xs[i] == 1 and xs[i + 1] == 19):
                     coor = risk.definitions.territory_locations[x]
-                    #verts.append((coor[0]*1.2, coor[1]*1.22 + 25))
-                    verts.append((1000,-200))
+                    # verts.append((coor[0]*1.2, coor[1]*1.22 + 25))
+                    verts.append((1000, -200))
                     verts.append((coor[0]*1.2, coor[1]*1.22 + 25))
                     codes.append(Path.CURVE3)
                     codes.append(Path.CURVE3)
@@ -544,38 +540,37 @@ class Board(object):
             plt.show()
         else:
             plt.tight_layout()
-            plt.savefig(filename,bbox_inches='tight')
+            plt.savefig(filename, bbox_inches='tight')
 
     @staticmethod
     def plot_single(territory_id, player_id, armies):
         """
         Plot a single army dot.
-            
-        Args:
+            Args:
             territory_id (int): the id of the territory to plot,
             player_id (int): the player id of the owner,
             armies (int): the number of armies.
         """
         coor = risk.definitions.territory_locations[territory_id]
         plt.scatter(
-            [coor[0]*1.2], 
-            [coor[1]*1.22], 
-            s=400, 
+            [coor[0]*1.2],
+            [coor[1]*1.22],
+            s=400,
             c=risk.definitions.player_colors[player_id],
             zorder=2
             )
         plt.text(
-            coor[0]*1.2, 
-            coor[1]*1.22 + 15, 
+            coor[0]*1.2,
+            coor[1]*1.22 + 15,
             s=str(armies),
             color='black' if risk.definitions.player_colors[player_id] in ['yellow', 'pink'] else 'white',
-            ha='center', 
+            ha='center',
             size=15
             )
 
     # ==================== #
     # == Combat Methods == #
-    # ==================== #    
+    # ==================== #
 
     @classmethod
     def fight(cls, attackers, defenders):
@@ -599,8 +594,7 @@ class Board(object):
     @staticmethod
     def throw_dice():
         """
-        Throw a dice.
-        
+        Throw a dice
         Returns:
             int: random int in [1, 6]. """
         return random.randint(1, 6)
